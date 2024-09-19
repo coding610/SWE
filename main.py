@@ -5,6 +5,7 @@ import matplotlib.colors as cplt
 from PIL import Image
 import math
 
+
 def save_exposure_map(exposure_map: np.ndarray, output_path='exposure.png'):
     image = Image.fromarray(exposure_map.astype(np.uint8))
     image.save(output_path)
@@ -39,7 +40,7 @@ def process_image(image_path, color_conditions):
 
     return result
 
-def wind_simulation(grid: np.ndarray, wind_data):
+def wind_simulation(grid: np.ndarray, wind_data, angles=range(180, 360)):
     def map_colors(data, cmap="viridis"):
         data = np.array(data)
         
@@ -70,15 +71,19 @@ def wind_simulation(grid: np.ndarray, wind_data):
         
         return rgb_array
 
-    def map_colors_result(coast, grid):
+    def map_colors_result(coast, grid, thickness=1):
         result = np.zeros((grid.shape[0], grid.shape[1], 3))
-        colors = map_colors(coast)
+        colors = map_colors(coast, "viridis")
 
         for x in range(len(grid)):
             for y in range(len(grid[0])):
-                if colors[x][y][0] != 0 and colors[x][y][1] != 0 and colors[x][y][1] != 0: result[x][y] = 255 * colors[x][y]
-                elif grid[x][y] == 1: result[x][y] = [30, 30, 30]
-                else: result[x][y] = [0, 0 ,0]
+                if colors[x][y][0] != 0 and colors[x][y][1] != 0 and colors[x][y][1] != 0:
+                    for i in range(thickness):
+                        if y - i > 0:
+                            result[x][y - i] = 255 * colors[x][y]
+
+                elif grid[x][y] == 1: result[x][y] = [20, 20, 20]
+                else: result[x][y] = [0, 0, 0]
 
         return result
 
@@ -87,7 +92,6 @@ def wind_simulation(grid: np.ndarray, wind_data):
 
     height, width = grid.shape
     result = np.zeros_like(grid)
-    angles = range(180, 360)
 
     i = 0
     for angle in angles:
@@ -99,8 +103,8 @@ def wind_simulation(grid: np.ndarray, wind_data):
         dx = np.cos(np.radians(angle))
         dy = np.sin(np.radians(angle))
         for pos in [[i, height - 1] for i in range(0, width - 1)] \
-            + [[0, i] for i in range(last_index(list(grid[:, 0]), 1))] \
-            + [[width - 1, i] for i in range(last_index(list(grid[:, width - 1]), 1))]:
+            + [[0, i] for i in range(last_index(list(grid[:, 0]), 1) + 10, height - 1, 2)] \
+            + [[width - 1, i] for i in range(last_index(list(grid[:, width - 1]), 1) + 10, height - 1, 2)]: # Sparsity of 5 to accomendate diagonal
 
             hit = False
             while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
@@ -111,13 +115,25 @@ def wind_simulation(grid: np.ndarray, wind_data):
                 pos[0] -= dx
                 pos[1] += dy
 
+    # Remove end cols for removed cmap
+    for _ in range(5):
+        result = np.delete(result, result.shape[1] - 1, axis=1)
+
+    # Do the same for grid
+    for _ in range(5):
+        grid = np.delete(grid, grid.shape[1] - 1, axis=1)
+
     result = map_colors_result(result, grid)
     return result
 
 def main():
-    coastline = process_image("map.png", {"red > 200": 1, "red < 200": 0})
+    coastline = process_image("map_highres.png", {"red > 200": 1, "red < 200": 0})
 
-    df = pd.read_csv("skarpöHData.csv", delimiter=";", usecols=["Datum", "Vindriktning", "Vindhastighet"])
+    # Somehow zeroed columns are added to the sides of the image
+    coastline = np.delete(coastline, 0, axis=1)
+    coastline = np.delete(coastline, coastline.shape[1] - 1, axis=1)
+
+    df = pd.read_csv("skarpöHData.csv", delimiter=";", usecols=np.array(["Datum", "Vindriktning", "Vindhastighet"]))
     df = df.dropna()
     df["Datum"] = pd.to_datetime(df["Datum"])
 
@@ -127,6 +143,7 @@ def main():
     )
 
     exposure_map = wind_simulation(coastline, wind_data)
+
     save_exposure_map(exposure_map)
 
 if __name__ == "__main__":
