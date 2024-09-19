@@ -1,7 +1,10 @@
 import numpy as np
 import pygame
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as cplt
 from PIL import Image
+import math
 
 # Visualize as blue to red instead of black to white
 def save_exposure_map(exposure_map, output_path='exposure_map.png'):
@@ -87,19 +90,17 @@ def simulate_wind(grid, wind_angles):
     return result
 
 def pg(grid: np.ndarray):
-    def colorize(g) -> np.ndarray:
-        h, w = g.shape
-        clr_grid = np.zeros((h, w, 3), dtype=np.uint8)
-        clr_grid[g >= 1] = [255, 255, 255]
-        clr_grid[g == 0] = [0, 0, 0]
-        return clr_grid
+    def draw_color_grid(surface, result):
+        result = (result - np.min(result)) / (np.max(result) - np.min(result))
+        non_zero = result[result != 0]
+        cmap = cplt.LinearSegmentedColormap.from_list("custom_cmap", [(0, "white"), (1, "red")], N=256)
+        norm = cplt.Normalize(vmin=min(non_zero), vmax=max(non_zero))
+        colors = cmap(norm(non_zero))
+        colors *= 255
 
-
-    def draw_color_grid(surface, color_grid):
-        for x in range(len(color_grid)):
-            for y in range(len(color_grid[0])):
-                color = color_grid[x][y]
-                surface.set_at((y, x), color)
+        for x in range(len(result)):
+            for y in range(len(result[0])):
+                surface.set_at((y, x), [colors[x][y], colors[x][y], colors[x][y]])
 
     pygame.init()
     height, width = grid.shape
@@ -116,17 +117,26 @@ def pg(grid: np.ndarray):
         window.fill((0, 0, 0))
 
         result = np.zeros_like(grid)
-        angle = 0
-        rays_pos = [[i, height] for i in range(0, width)]
-        for pos in rays_pos:
-            c = 0;
-            while c < height:
-                c += 1
-                pos[1] -= 1
-                if grid[pos[1], pos[0]] == 1:
-                    result[pos[1], pos[0]] = 1; c = 1000
+        angles = range(270, 290)
 
-        draw_color_grid(window, colorize(result))
+        i = 0
+        for angle in angles:
+            i += 1
+            print(f"{round(100 * i / len(angles), 2):6.2f}%", end="\r")
+
+            dx = np.cos(np.radians(angle))
+            dy = np.sin(np.radians(angle))
+            for pos in [[i, height - 1] for i in range(0, width - 1)]:
+                hit = False
+                while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
+                    if grid[math.floor(pos[1]), math.floor(pos[0])] == 1:
+                        result[math.floor(pos[1]), math.floor(pos[0])] += 1
+                        hit = True
+
+                    pos[0] += dx
+                    pos[1] += dy
+
+        draw_color_grid(window, result)
 
         pygame.display.update()
 
@@ -138,8 +148,8 @@ def main():
     df["Datum"] = pd.to_datetime(df["Datum"])
 
     exposure_map = pg(coastline)
-
-    save_exposure_map(exposure_map)
+    #
+    # save_exposure_map(exposure_map)
 
 if __name__ == "__main__":
     main()
