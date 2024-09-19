@@ -1,23 +1,13 @@
 import numpy as np
-import pygame
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as cplt
 from PIL import Image
 import math
 
-# Visualize as blue to red instead of black to white
-def save_exposure_map(exposure_map, output_path='exposure_map.png'):
-    exposure_min = np.min(exposure_map)
-    exposure_max = np.max(exposure_map)
-
-    if exposure_max > exposure_min:
-        normalized_map = (exposure_map - exposure_min) / (exposure_max - exposure_min) * 255
-    else:
-        normalized_map = np.zeros_like(exposure_map)
-
-    exposure_image = Image.fromarray(normalized_map.astype(np.uint8), mode='L')
-    exposure_image.save(output_path)
+def save_exposure_map(exposure_map: np.ndarray, output_path='exposure.png'):
+    image = Image.fromarray(exposure_map.astype(np.uint8))
+    image.save(output_path)
 
 
 def process_image(image_path, color_conditions):
@@ -49,96 +39,80 @@ def process_image(image_path, color_conditions):
 
     return result
 
-def simulate_wind(grid, wind_angles):
-    height, width = grid.shape
-    result = np.zeros_like(grid)
-    wind_angles_rad = np.deg2rad(wind_angles)
-    
-    def find_closest_coastline(x, y, dx, dy):
-        for dist in range(1, height):
-            nx = x + int(dx * dist)
-            ny = y + int(dy * dist)
-            
-            if 0 <= nx < width and 0 <= ny < height:
-                return nx, ny
-            elif 0 > nx >= width or 0 > ny >= height:
-                return nx, ny
-            elif grid[ny, nx] == 1:
-                return nx, ny
-            elif grid[ny, nx] == 0:
-                continue
-        return None, None
-    
-    for angle in wind_angles_rad:
-        sin_angle = np.sin(angle)
-        cos_angle = np.cos(angle)
+def wind_simulation(grid: np.ndarray, wind_data):
+    def map_colors(data, cmap="viridis"):
+        data = np.array(data)
         
-        for x in range(width):
-            for y in range(height):
-                # Skip ocean points
-                if grid[y, x] == 0:
-                    continue
-                
-                dx = cos_angle
-                dy = sin_angle
-                
-                closest_x, closest_y = find_closest_coastline(x, y, dx, dy)
-                
-                if closest_x is not None and closest_y is not None:
-                    result[closest_y, closest_x] += 1
-    
-    return result
+        # Initialize an array for RGB colors with the same shape as the input data
+        rgb_array = np.zeros((data.shape[0], data.shape[1], 3))  # RGB has 3 channels
+        
+        # Step 1: Filter out zero values
+        non_zero_mask = data > 0
+        non_zero_values = data[non_zero_mask]
+        
+        # Check if there are any non-zero values
+        if non_zero_values.size == 0:
+            return rgb_array  # Return an array with all zeros if no non-zero values
+        
+        # Step 2: Normalize the non-zero values
+        min_val = np.min(non_zero_values)
+        max_val = np.max(non_zero_values)
+        norm = cplt.Normalize(vmin=min_val, vmax=max_val)
+        
+        # Step 3: Create a color map
+        cmap = plt.get_cmap(cmap)
+        
+        # Map non-zero values to colors
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                if non_zero_mask[i, j]:
+                    rgb_array[i, j] = cmap(norm(data[i, j]))[:3]  # Extract RGB and ignore alpha
+        
+        return rgb_array
 
-def pg(grid: np.ndarray):
-    def draw_color_grid(surface, result):
-        result = (result - np.min(result)) / (np.max(result) - np.min(result))
-        non_zero = result[result != 0]
-        cmap = cplt.LinearSegmentedColormap.from_list("custom_cmap", [(0, "white"), (1, "red")], N=256)
-        norm = cplt.Normalize(vmin=min(non_zero), vmax=max(non_zero))
-        colors = cmap(norm(non_zero))
-        colors *= 255
+    def map_colors_result(coast, grid):
+        result = np.zeros((grid.shape[0], grid.shape[1], 3))
+        colors = map_colors(coast)
 
-        for x in range(len(result)):
-            for y in range(len(result[0])):
-                surface.set_at((y, x), [colors[x][y], colors[x][y], colors[x][y]])
+        for x in range(len(grid)):
+            for y in range(len(grid[0])):
+                if colors[x][y][0] != 0 and colors[x][y][1] != 0 and colors[x][y][1] != 0: result[x][y] = 255 * colors[x][y]
+                elif grid[x][y] == 1: result[x][y] = [30, 30, 30]
+                else: result[x][y] = [0, 0 ,0]
 
-    pygame.init()
+        return result
+
+    def last_index_of_item(lst, item):
+        try:
+            return len(lst) - 1 - lst[::-1].index(item)
+        except ValueError:
+            return None
+
     height, width = grid.shape
-    window = pygame.display.set_mode((width, height))
-
     result = np.zeros_like(grid)
-    
-    run = True
-    while run:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                run = False
+    angles = range(180, 360)
 
-        window.fill((0, 0, 0))
+    i = 0
+    for angle in angles:
+        i += 1
+        print(f"{round(100 * i / len(angles), 2):6.2f}%", end="\r")
 
-        result = np.zeros_like(grid)
-        angles = range(270, 290)
+        wind_constant = wind_data.loc[angle, "freq"] * wind_data.loc[angle, "speed"]
 
-        i = 0
-        for angle in angles:
-            i += 1
-            print(f"{round(100 * i / len(angles), 2):6.2f}%", end="\r")
+        dx = np.cos(np.radians(angle))
+        dy = np.sin(np.radians(angle))
+        for pos in [[i, height - 1] for i in range(0, width - 1)] + [[0, i], for i in range()]:
+            hit = False
+            while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
+                if grid[math.floor(pos[1]), math.floor(pos[0])] == 1:
+                    result[math.floor(pos[1]), math.floor(pos[0])] += wind_constant
+                    hit = True
 
-            dx = np.cos(np.radians(angle))
-            dy = np.sin(np.radians(angle))
-            for pos in [[i, height - 1] for i in range(0, width - 1)]:
-                hit = False
-                while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
-                    if grid[math.floor(pos[1]), math.floor(pos[0])] == 1:
-                        result[math.floor(pos[1]), math.floor(pos[0])] += 1
-                        hit = True
+                pos[0] += dx
+                pos[1] += dy
 
-                    pos[0] += dx
-                    pos[1] += dy
-
-        draw_color_grid(window, result)
-
-        pygame.display.update()
+    result = map_colors_result(result, grid)
+    return result
 
 def main():
     coastline = process_image("map.png", {"red > 200": 1, "red < 200": 0})
@@ -147,9 +121,13 @@ def main():
     df = df.dropna()
     df["Datum"] = pd.to_datetime(df["Datum"])
 
-    exposure_map = pg(coastline)
-    #
-    # save_exposure_map(exposure_map)
+    wind_data = df.groupby("Vindriktning").agg(
+        freq = ("Vindriktning", "count"),
+        speed = ("Vindhastighet", "mean")
+    )
+
+    exposure_map = wind_simulation(coastline, wind_data)
+    save_exposure_map(exposure_map)
 
 if __name__ == "__main__":
     main()
