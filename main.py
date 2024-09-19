@@ -82,11 +82,8 @@ def wind_simulation(grid: np.ndarray, wind_data):
 
         return result
 
-    def last_index_of_item(lst, item):
-        try:
-            return len(lst) - 1 - lst[::-1].index(item)
-        except ValueError:
-            return None
+    def last_index(lst, item) -> int:
+        return len(lst) - 1 - lst[::-1].index(item)
 
     height, width = grid.shape
     result = np.zeros_like(grid)
@@ -101,14 +98,17 @@ def wind_simulation(grid: np.ndarray, wind_data):
 
         dx = np.cos(np.radians(angle))
         dy = np.sin(np.radians(angle))
-        for pos in [[i, height - 1] for i in range(0, width - 1)] + [[0, i], for i in range()]:
+        for pos in [[i, height - 1] for i in range(0, width - 1)] \
+            + [[0, i] for i in range(last_index(list(grid[:, 0]), 1))] \
+            + [[width - 1, i] for i in range(last_index(list(grid[:, width - 1]), 1))]:
+
             hit = False
             while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
                 if grid[math.floor(pos[1]), math.floor(pos[0])] == 1:
                     result[math.floor(pos[1]), math.floor(pos[0])] += wind_constant
                     hit = True
 
-                pos[0] += dx
+                pos[0] -= dx
                 pos[1] += dy
 
     result = map_colors_result(result, grid)
