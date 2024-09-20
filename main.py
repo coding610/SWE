@@ -40,34 +40,26 @@ def process_image(image_path, color_conditions):
 
     return result
 
-def wind_simulation(grid: np.ndarray, wind_data, angles=range(180, 360)):
+def wind_simulation(grid: np.ndarray, wind_data, angles=range(180, 360), thickness=1):
     def map_colors(data, cmap="viridis"):
         data = np.array(data)
+        rgb_array = np.zeros((data.shape[0], data.shape[1], 3))
         
-        # Initialize an array for RGB colors with the same shape as the input data
-        rgb_array = np.zeros((data.shape[0], data.shape[1], 3))  # RGB has 3 channels
-        
-        # Step 1: Filter out zero values
         non_zero_mask = data > 0
         non_zero_values = data[non_zero_mask]
         
-        # Check if there are any non-zero values
         if non_zero_values.size == 0:
-            return rgb_array  # Return an array with all zeros if no non-zero values
+            return rgb_array
         
-        # Step 2: Normalize the non-zero values
         min_val = np.min(non_zero_values)
         max_val = np.max(non_zero_values)
         norm = cplt.Normalize(vmin=min_val, vmax=max_val)
         
-        # Step 3: Create a color map
         cmap = plt.get_cmap(cmap)
-        
-        # Map non-zero values to colors
         for i in range(data.shape[0]):
             for j in range(data.shape[1]):
                 if non_zero_mask[i, j]:
-                    rgb_array[i, j] = cmap(norm(data[i, j]))[:3]  # Extract RGB and ignore alpha
+                    rgb_array[i, j] = cmap(norm(data[i, j]))[:3]
         
         return rgb_array
 
@@ -82,7 +74,7 @@ def wind_simulation(grid: np.ndarray, wind_data, angles=range(180, 360)):
                         if y - i > 0:
                             result[x][y - i] = 255 * colors[x][y]
 
-                elif grid[x][y] == 1: result[x][y] = [20, 20, 20]
+                elif grid[x][y] == 1: result[x][y] = [30, 30, 30]
                 else: result[x][y] = [0, 0, 0]
 
         return result
@@ -102,26 +94,30 @@ def wind_simulation(grid: np.ndarray, wind_data, angles=range(180, 360)):
 
         dx = np.cos(np.radians(angle))
         dy = np.sin(np.radians(angle))
-        for pos in [[i, height - 1] for i in range(0, width - 1)] \
-            + [[0, i] for i in range(last_index(list(grid[:, 0]), 1) + 10, height - 1, 2)] \
-            + [[width - 1, i] for i in range(last_index(list(grid[:, width - 1]), 1) + 10, height - 1, 2)]: # Sparsity of 5 to accomendate diagonal
 
+        sparsity = math.ceil(np.tan(np.radians(angle)))
+        if sparsity == 0:
+            left_pos, right_pos = [], [] 
+        else:
+            left_pos = [[0, j] for j in range(last_index(list(grid[:, 0]), 1) + 10, height - 1, sparsity)]
+            right_pos = [[width - 1, j] for j in range(last_index(list(grid[:, width - 1]), 1), height - 1, sparsity)]
+        
+        bottom_pos = [[j, height - 1] for j in range(0, width - 1)]
+        for pos in bottom_pos + left_pos + right_pos:
             hit = False
             while (0 <= pos[0] < width and 0 <= pos[1] < height) and not hit:
                 if grid[math.floor(pos[1]), math.floor(pos[0])] == 1:
                     result[math.floor(pos[1]), math.floor(pos[0])] += wind_constant
+                    wind_overwrite = result[math.floor(pos[1]), math.floor(pos[0])]
+                    for _ in range(thickness - 1):
+                        if 0 <= pos[0] < width and 0 <= pos[1] < height:
+                            result[math.floor(pos[1]), math.floor(pos[0])] = wind_overwrite
+                            pos[0] -= dx; pos[1] += dy
+
                     hit = True
 
                 pos[0] -= dx
                 pos[1] += dy
-
-    # Remove end cols for removed cmap
-    for _ in range(5):
-        result = np.delete(result, result.shape[1] - 1, axis=1)
-
-    # Do the same for grid
-    for _ in range(5):
-        grid = np.delete(grid, grid.shape[1] - 1, axis=1)
 
     result = map_colors_result(result, grid)
     return result
@@ -137,14 +133,14 @@ def main():
     df = df.dropna()
     df["Datum"] = pd.to_datetime(df["Datum"])
 
-    wind_data = df.groupby("Vindriktning").agg(
+    # Data from the last 10 years
+    wind_data = df[df["Datum"] > pd.to_datetime("2014-01-01")].groupby("Vindriktning").agg(
         freq = ("Vindriktning", "count"),
         speed = ("Vindhastighet", "mean")
     )
 
-    exposure_map = wind_simulation(coastline, wind_data)
-
-    save_exposure_map(exposure_map)
+    exposure_map = wind_simulation(coastline, wind_data, thickness=3)
+    save_exposure_map(exposure_map, "exposure_2014.png")
 
 if __name__ == "__main__":
     main()
