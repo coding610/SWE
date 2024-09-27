@@ -1,4 +1,4 @@
 .SILENT:
 all:
-	python3 main.py
-	mupdf exposure.png
+	python3 src/main.py
+	mupdf output/exposure.png
